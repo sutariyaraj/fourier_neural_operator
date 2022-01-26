@@ -34,6 +34,7 @@ which takes the 2D spatial + 1D temporal equation directly as a 3D problem
 We provide the Burgers equation, Darcy flow, and Navier-Stokes equation datasets we used in the paper. 
 The data generation configuration can be found in the paper.
 - [PDE datasets](https://drive.google.com/drive/folders/1UnbQh2WWc6knEHbLn-ZaXrKUZhp7pjt-?usp=sharing)
+- [HEAT EQUATION dataset](https://drive.google.com/drive/folders/13tHnQiGhctZ9DRZ3V4lOzw2ZArhlQU5k?usp=sharing)
 
 The datasets are given in the form of matlab file. They can be loaded with the scripts provided in utilities.py. 
 Each data file is loaded as a tensor. The first index is the samples; the rest of indices are the discretization.
