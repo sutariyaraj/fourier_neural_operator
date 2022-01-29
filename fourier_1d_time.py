@@ -2,22 +2,14 @@
 @author: Raj Sutariya
 This file is the Fourier Neural Operator for 1D Time problem such as the Heat Equation based on [paper](https://arxiv.org/pdf/2010.08895.pdf).
 """
-
-import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.parameter import Parameter
-
-import matplotlib.pyplot as plt
-
-import operator
-from functools import reduce
-from functools import partial
-
 from timeit import default_timer
-from utilities3 import *
 
+from matplotlib import pyplot as plt
+
+from utilities3 import *
+import wandb
 from Adam import Adam
 
 torch.manual_seed(0)
@@ -164,23 +156,40 @@ T_in = 10
 T = 10
 step = 1
 
-path = 'heat_fourier_1d_rnn_N1100_T200_r200'+str(ntrain)+'_ep' + str(epochs) + '_m' + str(modes) + '_w' + str(width)
-path_model = 'model/'+path
+path = '2_heat_fourier_1d_rnn_N1100_T200_r200' + str(ntrain) + '_ep' + str(epochs) + '_m' + str(modes) + '_w' + str(width)
+path_model = 'model/' + path
+
+# wandb setup
+wandb.login()
+config = dict(
+    learning_rate=learning_rate,
+    modes=12,
+    width=20,
+    epochs=epochs,
+    batch_size=batch_size,
+    dataset_id="heat_N1100_T200_r200.mat",
+)
+
+wandb.init(
+    project="fourier_neural_operator",
+    notes="tweak baseline",
+    tags=["1d_time", "heat_equation"],
+    config=config,
+)
 
 ################################################################
 # load data and data normalization
 ################################################################
 reader = MatReader(TRAIN_PATH)
-x_train = reader.read_field('u')[:ntrain,:,:T_in]
-y_train = reader.read_field('u')[:ntrain,:,T_in:T+T_in]
+x_train = reader.read_field('u')[:ntrain, :, :T_in]
+y_train = reader.read_field('u')[:ntrain, :, T_in:T + T_in]
 
 reader.load_file(TEST_PATH)
-x_test = reader.read_field('u')[-ntest:,:,:T_in]
-y_test = reader.read_field('u')[-ntest:,:,T_in:T+T_in]
+x_test = reader.read_field('u')[-ntest:, :, :T_in]
+y_test = reader.read_field('u')[-ntest:, :, T_in:T + T_in]
 
 print(x_train.shape)
 print(y_train.shape)
-
 
 x_train = x_train.reshape(ntrain, s, T_in)
 x_test = x_test.reshape(ntest, s, T_in)
@@ -193,13 +202,14 @@ test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_test,
 ################################################################
 # training and evaluation
 ################################################################
+myloss = LpLoss(size_average=False)
+
 model = FNO1d(modes, width).cuda()
 print(count_params(model))
 
 optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
 
-myloss = LpLoss(size_average=False)
 for ep in range(epochs):
     model.train()
     t1 = default_timer()
@@ -255,27 +265,59 @@ for ep in range(epochs):
 
     t2 = default_timer()
     scheduler.step()
-    print(ep, t2 - t1, train_l2_step / ntrain / (T / step), train_l2_full / ntrain, test_l2_step / ntest / (T / step),
-          test_l2_full / ntest)
+    wandb.log({
+        "Epoch": ep,
+        "Time Taken": t2 - t1,
+        "Training Loss per time step": train_l2_step / ntrain / (T / step),
+        "Training Loss": train_l2_full / ntrain,
+        "Test Loss per time step": test_l2_step / ntest / (T / step),
+        "Test Loss": test_l2_full / ntest
+    })
 
 torch.save(model, path_model)
 
 ################################################################
-# prediction
+# prediction on loaded model
 ################################################################
-pred = torch.zeros(y_test.shape)
-index = 0
-test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_test, y_test), batch_size=1, shuffle=False)
-with torch.no_grad():
-    for x, y in test_loader:
-        test_l2 = 0;
-        x, y = x.cuda(), y.cuda()
-
-        out = model(x)
-        pred[index] = out
-
-        test_l2 += myloss(out.view(1, -1), y.view(1, -1)).item()
-        print(index, test_l2)
-        index = index + 1
-
-scipy.io.savemat('pred/'+path+'.mat', mdict={'pred': pred.cpu().numpy()})
+# model = torch.load(path_model)
+# pred = torch.zeros(y_test.shape)
+# index = 0
+# # test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_test, y_test), batch_size=batch_size, shuffle=False)
+#
+# test_l2_step = 0
+# test_l2_full = 0
+#
+# def show_plot(data_mat):
+#     plt.imshow(data_mat, interpolation='nearest', cmap='rainbow',
+#                origin='lower', aspect='auto')
+#     plt.ylabel('x (cm)')
+#     plt.xlabel('t (milliseconds)')
+#     plt.axis()
+#     plt.colorbar().set_label('Temperature (°C)')
+#     plt.show()
+# with torch.no_grad():
+#     for xx, yy in test_loader:
+#         loss = 0
+#         xx_original = xx.clone()
+#         xx = xx.to(device)
+#         yy = yy.to(device)
+#
+#         for t in range(0, T, step):
+#             y = yy[..., t:t + step]
+#             im = model(xx)
+#             loss += myloss(im.reshape(batch_size, -1), y.reshape(batch_size, -1))
+#
+#             if t == 0:
+#                 pred = im
+#             else:
+#                 pred = torch.cat((pred, im), -1)
+#
+#             xx = torch.cat((xx[..., step:], im), dim=-1)
+#         for i in range(batch_size):
+#             show_plot(torch.cat((xx_original[i], pred[i].cpu()), -1))
+#         exit()
+#
+#         test_l2_step += loss.item()
+#         test_l2_full += myloss(pred.reshape(batch_size, -1), yy.reshape(batch_size, -1)).item()
+#
+# scipy.io.savemat('pred/' + path + '.mat', mdict={'pred': pred.cpu().numpy()})
